@@ -82,7 +82,7 @@ class MyApp extends StatelessWidget {
 
     switch (settings.name) {
       case '/':
-        page = const Layout(child: InvoiceScreen());
+        page = const Layout(child: LoginScreen());
         break;
       case '/home':
         page = const Layout(child: InvoiceScreen());
