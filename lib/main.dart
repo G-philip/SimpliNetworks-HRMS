@@ -14,32 +14,24 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    // Initialize Hive for local storage
     await Hive.initFlutter();
-
-    // Register the Hive adapter for the Invoice model
     Hive.registerAdapter(InvoiceAdapter());
+    Hive.registerAdapter(InvoiceItemAdapter());
+    
+    final invoiceBox = await Hive.openBox<Invoice>('invoices');
+    final metadataBox = await Hive.openBox<int>('metadata');
 
-    // Open Hive boxes
-    // await Hive.openBox<Invoice>('invoices');
-    // await Hive.openBox<int>('metadata');
-     final invoiceBox = await Hive.openBox<Invoice>('invoices');
-  final metadataBox = await Hive.openBox<int>('metadata');
+    if (!metadataBox.containsKey('lastInvoiceNumber')) {
+      await metadataBox.put('lastInvoiceNumber', 0);
+    }
 
-    // Ensure the 'lastInvoiceNumber' key is initialized
-  if (!metadataBox.containsKey('lastInvoiceNumber')) {
-    metadataBox.put('lastInvoiceNumber', 0);
-  }
     runApp(
       MultiProvider(
         providers: [
           ChangeNotifierProvider(create: (context) => LoginState()),
-          // ChangeNotifierProvider(create: (_) => InvoiceProvider(
-          //   Hive.box<Invoice>('invoices'),
-          //   Hive.box<int>('metadata'),
-          //   ),
-          // ),
-          ChangeNotifierProvider(create: (_) => InvoiceProvider(invoiceBox, metadataBox)),
+          ChangeNotifierProvider(
+            create: (_) => InvoiceProvider(invoiceBox, metadataBox),
+          ),
           ChangeNotifierProvider(create: (_) => FocusNodeProvider()),
           ChangeNotifierProvider(create: (context) => PositionProvider()),
         ],
@@ -48,11 +40,32 @@ void main() async {
     );
   } catch (e) {
     print('Error initializing app: $e');
+    runApp(
+      const MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Text('Failed to initialize app. Please restart.'),
+          ),
+        ),
+      ),
+    );
   }
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void dispose() {
+    // Close Hive boxes when app is disposed
+    Hive.close();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -1,6 +1,61 @@
 import 'package:hive_flutter/hive_flutter.dart';
 
-part 'invoice_model.g.dart'; // Ensure this is included for Hive code generation
+part 'invoice_model.g.dart';
+
+@HiveType(typeId: 1)
+class InvoiceItem {
+  @HiveField(0)
+  final String description;
+  
+  @HiveField(1)
+  final double quantity;
+  
+  @HiveField(2)
+  final double price;
+  
+  @HiveField(3)
+  final double taxRate;
+
+  InvoiceItem({
+    required this.description,
+    required this.quantity,
+    required this.price,
+    this.taxRate = 0.0,
+  });
+
+  double get total => price * quantity * (1 + taxRate/100);
+
+  factory InvoiceItem.empty() => InvoiceItem(
+    description: '',
+    quantity: 0,
+    price: 0,
+    taxRate: 0,
+  );
+
+  InvoiceItem copyWith({
+    String? description,
+    double? quantity,
+    double? price,
+    double? taxRate,
+  }) {
+    return InvoiceItem(
+      description: description ?? this.description,
+      quantity: quantity ?? this.quantity,
+      price: price ?? this.price,
+      taxRate: taxRate ?? this.taxRate,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'description': description,
+      'quantity': quantity,
+      'price': price,
+      'taxRate': taxRate,
+      'total': total,
+    };
+  }
+}
 
 @HiveType(typeId: 0)
 class Invoice {
@@ -23,22 +78,10 @@ class Invoice {
   final String customerEmail;
 
   @HiveField(6)
-  final double amount;
+  final List<InvoiceItem> items;
 
   @HiveField(7)
   final String status;
-
-  @HiveField(8)
-  final String? itemDescription;
-
-  @HiveField(9)
-  final double? quantity;
-
-  @HiveField(10)
-  final double? price;
-
-  @HiveField(11)
-  final double? taxRate;
 
   Invoice({
     required this.id,
@@ -47,15 +90,24 @@ class Invoice {
     required this.customerName,
     required this.customerAddress,
     required this.customerEmail,
-    required this.amount,
-    required this.status,
-    this.itemDescription,
-    this.quantity,
-    this.price,
-    this.taxRate,
+    required this.items,
+    this.status = 'Draft',
   });
 
-  // Add the copyWith method
+  double get amount => items.fold(0.0, (sum, item) => sum + item.total);
+
+  bool get hasItems => items.isNotEmpty;
+
+  factory Invoice.empty() => Invoice(
+    id: '',
+    invoiceNumber: '',
+    date: '',
+    customerName: '',
+    customerAddress: '',
+    customerEmail: '',
+    items: [],
+  );
+
   Invoice copyWith({
     String? id,
     String? invoiceNumber,
@@ -63,12 +115,8 @@ class Invoice {
     String? customerName,
     String? customerAddress,
     String? customerEmail,
-    double? amount,
+    List<InvoiceItem>? items,
     String? status,
-    String? itemDescription,
-    double? quantity,
-    double? price,
-    double? taxRate,
   }) {
     return Invoice(
       id: id ?? this.id,
@@ -77,16 +125,11 @@ class Invoice {
       customerName: customerName ?? this.customerName,
       customerAddress: customerAddress ?? this.customerAddress,
       customerEmail: customerEmail ?? this.customerEmail,
-      amount: amount ?? this.amount,
+      items: items ?? this.items,
       status: status ?? this.status,
-      itemDescription: itemDescription ?? this.itemDescription,
-      quantity: quantity ?? this.quantity,
-      price: price ?? this.price,
-      taxRate: taxRate ?? this.taxRate,
     );
   }
 
-  // Convert the object to a JSON map
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -95,12 +138,9 @@ class Invoice {
       'customerName': customerName,
       'customerAddress': customerAddress,
       'customerEmail': customerEmail,
-      'amount': amount,
+      'items': items.map((item) => item.toJson()).toList(),
       'status': status,
-      'itemDescription': itemDescription,
-      'quantity': quantity,
-      'price': price,
-      'taxRate': taxRate,
+      'amount': amount,
     };
   }
 }

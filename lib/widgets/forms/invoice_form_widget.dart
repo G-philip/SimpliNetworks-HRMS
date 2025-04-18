@@ -5,99 +5,94 @@ import 'package:uuid/uuid.dart';
 import 'package:provider/provider.dart';
 
 class InvoiceForm extends StatefulWidget {
-  final VoidCallback onFormSubmit; // Callback for form submission
-  final Invoice? invoice; // Optional invoice for editing
+  final VoidCallback onFormSubmit;
+  final Invoice? invoice;
 
   const InvoiceForm({
-    super.key,
+    Key? key,
     required this.onFormSubmit,
-    this.invoice, // Pass the invoice to edit (null for add new)
-  });
+    this.invoice,
+  }) : super(key: key);
 
   @override
   State<InvoiceForm> createState() => _InvoiceFormState();
 }
 
 class _InvoiceFormState extends State<InvoiceForm> {
-  final _formKey = GlobalKey<FormState>(); // Form key for validation
+  final _formKey = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _controllers;
+  final List<InvoiceItem> _items = [];
+  double _taxRate = 0.0;
 
   bool _isClientInfoVisible = true;
   bool _isInvoiceItemsVisible = false;
   bool _isTaxesAndTotalsVisible = false;
-  bool _isSubmitting = false; // Add this variable to your state
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
-    // Initialize all controllers
     _controllers = _initializeControllers();
-
-    // If an invoice is provided (edit mode), pre-fill the form
+    
     if (widget.invoice != null) {
       _prefillForm(widget.invoice!);
+      _items.addAll(widget.invoice!.items);
+      if (_items.isNotEmpty) {
+        _taxRate = _items.first.taxRate;
+        _controllers['taxRate']!.text = _taxRate.toString();
+      }
+    } else {
+      _items.add(InvoiceItem.empty());
     }
-
-    // Add listeners to recalculate totals when input changes
-    _controllers['itemQuantity']!.addListener(_calculateTotals);
-    _controllers['itemPrice']!.addListener(_calculateTotals);
-    _controllers['taxRate']!.addListener(_calculateTotals);
   }
 
   @override
   void dispose() {
-    // Remove listeners and dispose controllers
-    _controllers['itemQuantity']!.removeListener(_calculateTotals);
-    _controllers['itemPrice']!.removeListener(_calculateTotals);
-    _controllers['taxRate']!.removeListener(_calculateTotals);
-
-    // Dispose all controllers
-    _controllers.forEach((key, controller) {
-      controller.dispose();
-    });
+    _controllers.forEach((key, controller) => controller.dispose());
     super.dispose();
   }
 
-  // Initialize all TextEditingControllers
   Map<String, TextEditingController> _initializeControllers() {
     return {
       'clientName': TextEditingController(),
       'clientEmail': TextEditingController(),
       'clientAddress': TextEditingController(),
-      'itemDescription': TextEditingController(),
-      'itemQuantity': TextEditingController(),
-      'itemPrice': TextEditingController(),
-      'taxRate': TextEditingController(),
-      'totalAmount': TextEditingController(),
+      'taxRate': TextEditingController(text: '0'),
     };
   }
 
-  // Pre-fill the form with existing invoice data (for edit mode)
   void _prefillForm(Invoice invoice) {
     _controllers['clientName']!.text = invoice.customerName;
     _controllers['clientEmail']!.text = invoice.customerEmail;
     _controllers['clientAddress']!.text = invoice.customerAddress;
-    _controllers['itemDescription']!.text = invoice.itemDescription ?? '';
-    _controllers['itemQuantity']!.text = invoice.quantity?.toString() ?? '';
-    _controllers['itemPrice']!.text = invoice.price?.toString() ?? '';
-    _controllers['taxRate']!.text = invoice.taxRate?.toString() ?? '';
-    _controllers['totalAmount']!.text = invoice.amount.toString();
   }
 
-  // Calculate subtotal, tax, and total amount
   void _calculateTotals() {
-    final quantity = double.tryParse(_controllers['itemQuantity']!.text) ?? 0;
-    final price = double.tryParse(_controllers['itemPrice']!.text) ?? 0;
-    final taxRate = double.tryParse(_controllers['taxRate']!.text) ?? 0;
-
-    final subtotal = quantity * price;
-    final taxAmount = subtotal * (taxRate / 100);
-    final totalAmount = subtotal + taxAmount;
-
-    _controllers['totalAmount']!.text = totalAmount.toStringAsFixed(2);
+    setState(() {
+      _taxRate = double.tryParse(_controllers['taxRate']!.text) ?? 0;
+    });
   }
 
-  // Handle "Next" button click
+  void _addNewItem() {
+    setState(() {
+      _items.add(InvoiceItem.empty());
+    });
+  }
+
+  void _removeItem(int index) {
+    if (_items.length > 1) {
+      setState(() {
+        _items.removeAt(index);
+      });
+    }
+  }
+
+  void _updateItem(int index, InvoiceItem newItem) {
+    setState(() {
+      _items[index] = newItem;
+    });
+  }
+
   void _onNextButtonClicked() {
     if (_formKey.currentState!.validate()) {
       setState(() {
@@ -113,60 +108,47 @@ class _InvoiceFormState extends State<InvoiceForm> {
   }
 
   void _onSubmit(BuildContext context) {
-    if (_isSubmitting) return; // Prevent multiple submits
-    _isSubmitting = true; // Set submitting state to true
+    if (_isSubmitting) return;
+    _isSubmitting = true;
 
     if (_formKey.currentState!.validate()) {
       final invoiceProvider = Provider.of<InvoiceProvider>(context, listen: false);
-
-      // Generate the invoice number only once if it's a new invoice
-      final String invoiceNumber;
-      if (widget.invoice == null) {
-        final sequentialNumber = invoiceProvider.getNextSequentialNumber();
-        invoiceNumber = _generateInvoiceNumber(sequentialNumber); // Use the pre-generated sequential number
-      } else {
-        invoiceNumber = widget.invoice!.invoiceNumber; // Use existing invoice number
-      }
+      
+      final itemsWithTax = _items.map((item) => item.copyWith(taxRate: _taxRate)).toList();
 
       final invoice = Invoice(
-        id: widget.invoice?.id ?? const Uuid().v4(), // Use existing ID for edit, generate new for add
-        invoiceNumber: invoiceNumber, // Use the pre-generated invoice number
+        id: widget.invoice?.id ?? const Uuid().v4(),
+        invoiceNumber: widget.invoice?.invoiceNumber ?? 
+            _generateInvoiceNumber(invoiceProvider.getNextSequentialNumber()),
         date: widget.invoice?.date ?? DateTime.now().toString().split(' ')[0],
         customerName: _controllers['clientName']!.text,
         customerEmail: _controllers['clientEmail']!.text,
         customerAddress: _controllers['clientAddress']!.text,
-        amount: double.parse(_controllers['totalAmount']!.text),
-        status: widget.invoice?.status ?? 'Pending', // Use existing status for edit
-        itemDescription: _controllers['itemDescription']!.text,
-        quantity: double.tryParse(_controllers['itemQuantity']!.text),
-        price: double.tryParse(_controllers['itemPrice']!.text),
-        taxRate: double.tryParse(_controllers['taxRate']!.text),
+        items: itemsWithTax,
+        status: widget.invoice?.status ?? 'Pending',
       );
 
       if (widget.invoice == null) {
-        invoiceProvider.addInvoice(invoice); // Add new invoice
+        invoiceProvider.addInvoice(invoice);
       } else {
-        invoiceProvider.updateInvoice(invoice); // Update existing invoice
+        invoiceProvider.updateInvoice(invoice);
       }
 
-      // Trigger the callback to notify the parent widget
       widget.onFormSubmit();
-
-      // Close the dialog
       Navigator.of(context).pop();
     }
-
-    _isSubmitting = false; // Reset submitting state
+    _isSubmitting = false;
   }
 
   String _generateInvoiceNumber(int sequentialNumber) {
     final now = DateTime.now();
-    print('Generating invoice number. Sequential number: $sequentialNumber'); // Debug print
     return 'INV-${now.year}-${now.month}-${now.day}-${sequentialNumber.toString().padLeft(3, '0')}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final totalAmount = _items.fold(0.0, (sum, item) => sum + item.total);
+
     return Form(
       key: _formKey,
       child: Padding(
@@ -174,18 +156,10 @@ class _InvoiceFormState extends State<InvoiceForm> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Client Information Section
             _buildClientInfoSection(),
-
-            // Invoice Items Section
             _buildInvoiceItemsSection(),
-
-            // Taxes and Totals Section
-            _buildTaxesAndTotalsSection(),
-
+            _buildTaxesAndTotalsSection(totalAmount),
             const SizedBox(height: 20),
-
-            // Navigation Buttons (Back, Next, Submit)
             _buildNavigationButtons(context),
           ],
         ),
@@ -193,123 +167,178 @@ class _InvoiceFormState extends State<InvoiceForm> {
     );
   }
 
-  // Build Client Information Section
   Widget _buildClientInfoSection() {
     return Visibility(
       visible: _isClientInfoVisible,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Client Information',
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
               color: Color(0xFF114F5A),
-              letterSpacing: 2.0,
             ),
           ),
           const SizedBox(height: 10),
           _buildTextFormField(
             controller: _controllers['clientName']!,
             label: 'Client Name',
-            validator: (value) => value?.isEmpty ?? true ? 'Please enter the client name' : null,
+            validator: (value) => value?.isEmpty ?? true ? 'Required' : null,
           ),
           _buildTextFormField(
             controller: _controllers['clientEmail']!,
             label: 'Client Email',
-            validator: (value) => value?.isEmpty ?? true ? 'Please enter the client email' : null,
+            validator: (value) => value?.isEmpty ?? true ? 'Required' : null,
           ),
           _buildTextFormField(
             controller: _controllers['clientAddress']!,
             label: 'Client Address',
-            validator: (value) => value?.isEmpty ?? true ? 'Please enter the client address' : null,
+            validator: (value) => value?.isEmpty ?? true ? 'Required' : null,
           ),
         ],
       ),
     );
   }
 
-  // Build Invoice Items Section
   Widget _buildInvoiceItemsSection() {
     return Visibility(
       visible: _isInvoiceItemsVisible,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
             'Invoice Items',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              letterSpacing: 2.0,
               color: Color(0xFF114F5A),
             ),
           ),
           const SizedBox(height: 10),
-          _buildTextFormField(
-            controller: _controllers['itemDescription']!,
-            label: 'Item Description',
-            validator: (value) => value?.isEmpty ?? true ? 'Please enter the item description' : null,
-          ),
-          _buildTextFormField(
-            controller: _controllers['itemQuantity']!,
-            label: 'Quantity',
-            keyboardType: TextInputType.number,
-            validator: (value) => _validateNumber(value, 'quantity'),
-          ),
-          _buildTextFormField(
-            controller: _controllers['itemPrice']!,
-            label: 'Price',
-            keyboardType: TextInputType.number,
-            validator: (value) => _validateNumber(value, 'price'),
+          ..._items.asMap().entries.map((entry) {
+            final index = entry.key;
+            final item = entry.value;
+            return _buildItemRow(index, item);
+          }).toList(),
+          TextButton(
+            onPressed: _addNewItem,
+            child: const Text('+ Add Another Item'),
           ),
         ],
       ),
     );
   }
 
-  // Build Taxes and Totals Section
-  Widget _buildTaxesAndTotalsSection() {
+  Widget _buildItemRow(int index, InvoiceItem item) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      children: [
+        Expanded(
+          child: TextFormField(
+            initialValue: item.description,
+            decoration: const InputDecoration(labelText: 'Description'),
+            onChanged: (value) => _updateItem(index, item.copyWith(description: value)),
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 80,
+          child: TextFormField(
+            initialValue: item.quantity.toString(),
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Qty'),
+            onChanged: (value) => _updateItem(
+              index,
+              item.copyWith(quantity: double.tryParse(value) ?? 0),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 100,
+          child: TextFormField(
+            initialValue: item.price.toString(),
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Price'),
+            onChanged: (value) => _updateItem(
+              index,
+              item.copyWith(price: double.tryParse(value) ?? 0),
+            ),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.remove, color: Colors.red),
+          onPressed: () => _removeItem(index),
+        ),
+      ],
+    ),
+  );
+}
+
+  Widget _buildTaxesAndTotalsSection(double totalAmount) {
+    final subtotal = totalAmount / (1 + _taxRate/100);
+    final taxAmount = totalAmount - subtotal;
+
     return Visibility(
       visible: _isTaxesAndTotalsVisible,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Taxes and Totals',
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              letterSpacing: 2.0,
               color: Color(0xFF114F5A),
             ),
           ),
           const SizedBox(height: 10),
-          _buildTextFormField(
+          TextFormField(
             controller: _controllers['taxRate']!,
-            label: 'Tax Rate (%)',
+            decoration: const InputDecoration(labelText: 'Tax Rate (%)'),
             keyboardType: TextInputType.number,
-            validator: (value) => _validateNumber(value, 'tax rate'),
+            onChanged: (value) => _calculateTotals(),
           ),
-          _buildTextFormField(
-            controller: _controllers['totalAmount']!,
-            label: 'Total Amount',
-            keyboardType: TextInputType.number,
-            readOnly: true,
-            validator: (value) => _validateNumber(value, 'total amount'),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Subtotal:', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('\$${subtotal.toStringAsFixed(2)}'),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Tax:', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('\$${taxAmount.toStringAsFixed(2)}'),
+            ],
+          ),
+          const Divider(),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Total:', style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              )),
+              Text('\$${totalAmount.toStringAsFixed(2)}', style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              )),
+            ],
           ),
         ],
       ),
     );
   }
 
-  // Build Navigation Buttons
   Widget _buildNavigationButtons(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        // Back Button
         if (!_isClientInfoVisible)
           TextButton(
             onPressed: () {
@@ -332,20 +361,26 @@ class _InvoiceFormState extends State<InvoiceForm> {
             ),
           ),
         const SizedBox(width: 20),
-
-        // Submit or Next Button
         _isTaxesAndTotalsVisible
             ? ElevatedButton(
                 onPressed: () => _onSubmit(context),
-                child: const Text('Submit', style: TextStyle(color: Color(0xFF114F5A))),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF114F5A),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Submit'),
               )
             : ElevatedButton(
                 onPressed: _onNextButtonClicked,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF114F5A),
+                  foregroundColor: Colors.white,
+                ),
                 child: const Row(
                   children: [
-                    Text('Next', style: TextStyle(color: Color(0xFF114F5A))),
+                    Text('Next'),
                     SizedBox(width: 6),
-                    Icon(Icons.double_arrow, color: Color(0xFF114F5A), size: 20),
+                    Icon(Icons.double_arrow, size: 20),
                   ],
                 ),
               ),
@@ -353,12 +388,10 @@ class _InvoiceFormState extends State<InvoiceForm> {
     );
   }
 
-  // Helper method to build a TextFormField
   Widget _buildTextFormField({
     required TextEditingController controller,
     required String label,
     TextInputType? keyboardType,
-    bool readOnly = false,
     String? Function(String?)? validator,
   }) {
     return TextFormField(
@@ -374,19 +407,7 @@ class _InvoiceFormState extends State<InvoiceForm> {
         ),
       ),
       keyboardType: keyboardType,
-      readOnly: readOnly,
       validator: validator,
     );
-  }
-
-  // Helper method to validate numeric input
-  String? _validateNumber(String? value, String fieldName) {
-    if (value == null || value.isEmpty) {
-      return 'Please enter the $fieldName';
-    }
-    if (double.tryParse(value) == null) {
-      return 'Please enter a valid number';
-    }
-    return null;
   }
 }

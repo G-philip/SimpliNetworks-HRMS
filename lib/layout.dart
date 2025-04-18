@@ -37,7 +37,10 @@ class _LayoutState extends State<Layout> {
                             child: SizedBox(
                               width: double.infinity,
                               child: Padding(
-                                padding: const EdgeInsets.only(left: 50.0, top: 50.0, right: 60.0),
+                                padding: const EdgeInsets.only(left: 50.0, top: 7.0, 
+                                right: 60.0,
+                                bottom: 0.0,
+                                ),
                                 
                                 child: layoutState.currentScreen,
                               ), // Use currentScreen from LayoutState

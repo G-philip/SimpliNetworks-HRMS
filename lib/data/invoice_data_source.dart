@@ -1,28 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:simpli/models/invoice_model.dart';
 import 'package:simpli/screens/invoice/show_invoice_item.dart';
+import 'package:simpli/services/layout_state.dart';
 import 'package:simpli/widgets/forms/invoice_form_widget.dart';
-import 'package:simpli/widgets/modal/display_item_modal.dart';
 import 'package:simpli/widgets/modal/reusable_modal.dart';
 import 'package:simpli/widgets/text_style_small.dart';
-import 'package:simpli/services/invoice_provider.dart'; // Import the provider
+import 'package:simpli/services/invoice_provider.dart';
 
 class InvoiceDataSource extends DataTableSource {
   List<Invoice> invoices1;
-  final BuildContext context; // Add BuildContext to access it in the DataRow
-  final InvoiceProvider
-      invoiceProvider; // Use InvoiceProvider instead of Hive Box
+  final BuildContext context;
+  final InvoiceProvider invoiceProvider;
 
   InvoiceDataSource(this.invoices1, this.context, this.invoiceProvider);
 
-  // Update the list of invoices
   void updateInvoices(List<Invoice> newInvoices) {
-    invoices1.clear();
-    invoices1.addAll(newInvoices);
-    notifyListeners(); // Notify the DataTable to update the UI
+    invoices1 = List.from(newInvoices);
+    notifyListeners();
   }
 
-  // Show the edit invoice dialog
   void showEditInvoiceDialog(BuildContext context, Invoice invoice) {
     showDialog(
       context: context,
@@ -30,112 +27,124 @@ class InvoiceDataSource extends DataTableSource {
         return ReusableModal(
           formWidget: InvoiceForm(
             onFormSubmit: () {
-              // Refresh the invoice list after editing
-              invoices1 = invoiceProvider.invoices1;
-              notifyListeners(); // Notify the DataTable
+              invoices1 = List.from(invoiceProvider.invoices1);
+              notifyListeners();
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Invoice updated successfully!')),
               );
             },
-            invoice: invoice, // Pass the invoice to edit
+            invoice: invoice,
           ),
         );
       },
     );
   }
 
-  // Delete an invoice
-  void deleteInvoice(Invoice invoice) {
-    // Show a confirmation dialog before deleting
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Delete Invoice'),
-          content: const Text('Are you sure you want to delete this invoice?'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Close the dialog
-              },
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () async {
-                // Use the provider to delete the invoice
-                await invoiceProvider
-                    .deleteInvoice(invoice); // Await the Future
-                // Remove the invoice from the local list
-                invoices1.remove(invoice);
-                notifyListeners(); // Notify the DataTable to update the UI
-                Navigator.of(context).pop(); // Close the dialog
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('Invoice deleted successfully!')),
-                );
-              },
-              child: const Text('Delete', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
+  Future<void> deleteInvoice(Invoice invoice) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Deleting invoice...'),
+        duration: Duration(seconds: 2),
+      ),
     );
+
+    try {
+      await invoiceProvider.deleteInvoice(invoice);
+      invoices1 = List.from(invoiceProvider.invoices1);
+      notifyListeners();
+      
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Invoice deleted successfully!')),
+      );
+    } catch (e) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete: ${e.toString()}'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+    }
   }
 
   @override
   DataRow getRow(int index) {
-    if (index >= invoices1.length) {
-      return const DataRow(cells: []);
-    }
+    if (index >= invoices1.length) return const DataRow(cells: []);
 
     final invoice = invoices1[index];
+    final hasItems = invoice.items.isNotEmpty;
 
     return DataRow(
+      color: WidgetStateProperty.resolveWith<Color>(
+        (Set<WidgetState> states) {
+          if (states.contains(WidgetState.selected)) {
+            return Theme.of(context).colorScheme.primary.withOpacity(0.08);
+          }
+          return index.isEven ? Colors.grey[50]! : Colors.white;
+        },
+      ),
       cells: [
         DataCell(textStyleSmall(invoice.invoiceNumber)),
-        DataCell(textStyleSmall(invoice.date)),
         DataCell(textStyleSmall(invoice.customerName)),
+        DataCell(textStyleSmall(invoice.date)),
         DataCell(textStyleSmall('\$${invoice.amount.toStringAsFixed(2)}')),
-        DataCell(textStyleSmall(invoice.status)),
         DataCell(
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              IconButton(
-                icon: const Icon(Icons.edit),
-                onPressed: () {
-                  // Call the edit invoice dialog function with the invoice data
-                  showEditInvoiceDialog(context, invoice);
-                },
+              Tooltip(
+                message: hasItems ? 'Add items' : 'Add first item',
+                child: IconButton(
+                  icon: Icon(
+                    Icons.add,
+                    color: hasItems ? Colors.grey : Colors.blue,
+                  ),
+                  onPressed: () {
+                    final newInvoice = invoice.copyWith(
+                      items: [...invoice.items, InvoiceItem.empty()],
+                    );
+                    showEditInvoiceDialog(context, newInvoice);
+                  },
+                ),
               ),
-              IconButton(
-                icon: const Icon(Icons.delete),
-                onPressed: () {
-                  // Call the delete invoice function
-                  deleteInvoice(invoice);
-                },
+              Tooltip(
+                message: 'Edit invoice',
+                child: IconButton(
+                  icon: const Icon(Icons.edit),
+                  onPressed: () => showEditInvoiceDialog(context, invoice),
+                ),
               ),
-              IconButton(
+              Tooltip(
+                message: 'Delete invoice',
+                child: IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => deleteInvoice(invoice),
+                ),
+              ),
+              Tooltip(
+                message: 'View details',
+                child: IconButton(
                   icon: const Icon(Icons.remove_red_eye),
                   onPressed: () {
-                    // Use showCustomModal instead of showDialog
-                    showCustomModal(
-                      context,
-                      top: 44, // Start 100 pixels from the top
-                      left: 350, // Start 100 pixels from the left
-                      child:
-                          const ShowInvoiceItem(), // Pass the content of the modal
-                    );
-                  }),
+                    Provider.of<LayoutState>(context, listen: false)
+                        .setCurrentScreen(ShowInvoiceItem(invoice: invoice));
+                    // showDialog(
+                    //   context: context,
+                    //   builder: (context) => Dialog(
+                    //     child: ShowInvoiceItem(invoice: invoice),
+                    //   ),
+                    // );
+                  },
+                ),
+              ),
             ],
           ),
         ),
       ],
     );
   }
-
-  double calculateTotal(List<Map<String, dynamic>> items) {
-  return items.fold(0.0, (sum, item) => sum + (item['total'] as double));
-}
 
   @override
   bool get isRowCountApproximate => false;
